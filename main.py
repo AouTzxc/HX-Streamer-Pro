@@ -5,6 +5,7 @@ import struct
 import json
 import os
 import shutil
+import ctypes
 from pathlib import Path
 import cv2
 import numpy as np
@@ -14,7 +15,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout,
                              QHBoxLayout, QLabel, QLineEdit, QPushButton, 
                              QComboBox, QSlider, QFrame, QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QImage, QPixmap, QColor
+from PyQt6.QtGui import QImage, QPixmap, QColor, QIcon
 
 # ===========================
 # 1. 核心推流工作线程 (逻辑不变)
@@ -27,6 +28,7 @@ class StreamWorker(QThread):
     def __init__(self):
         super().__init__()
         self.is_running = False
+        self.sock = None
         self.ip = "127.0.0.1"
         self.port = 7878
         self.width = 256
@@ -34,6 +36,20 @@ class StreamWorker(QThread):
         self.quality = 80
         self.fps_limit = 120
         self.protocol = "TCP"
+
+    def request_stop(self):
+        self.is_running = False
+        sock = self.sock
+        if not sock:
+            return
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            sock.close()
+        except OSError:
+            pass
 
     def run(self):
         self.is_running = True
@@ -46,11 +62,12 @@ class StreamWorker(QThread):
                 sock.settimeout(3)
                 self.status_updated.emit(f"正在连接 TCP -> {self.ip}:{self.port}...")
                 sock.connect(addr)
-                sock.settimeout(1.0)
+                sock.settimeout(None)
                 self.status_updated.emit(f"TCP 推流中-> {self.ip}")
             else:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 self.status_updated.emit(f"UDP 发送中 -> {self.ip}:{self.port}")
+            self.sock = sock
 
             with mss() as sct:
                 monitor = sct.monitors[1]
@@ -100,11 +117,9 @@ class StreamWorker(QThread):
                                 if now - last_udp_warn_time >= 1.0:
                                     self.status_updated.emit(f"UDP 包过大({len(data)} bytes)，该帧已丢弃，请降低画质/分辨率")
                                     last_udp_warn_time = now
-                    except socket.timeout:
-                        self.status_updated.emit("网络发送超时，推流已停止")
-                        break
                     except Exception as e:
-                        self.status_updated.emit(f"发送失败: {str(e)}")
+                        if self.is_running:
+                            self.status_updated.emit(f"发送失败: {str(e)}")
                         break
 
                     # FPS 统计与限制
@@ -122,9 +137,30 @@ class StreamWorker(QThread):
         except Exception as e:
             self.status_updated.emit(f"错误: {str(e)}")
         finally:
-            if sock: sock.close()
+            if sock:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+            self.sock = None
             self.is_running = False
             self.status_updated.emit("Stopped")
+
+
+def get_logo_icon():
+    icon_path = Path(__file__).resolve().parent / "logo.ico"
+    if icon_path.exists():
+        return QIcon(str(icon_path))
+    return QIcon()
+
+
+def set_windows_app_user_model_id(app_id):
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        pass
 
 # ===========================
 # 2. 支持换肤的自定义控件
@@ -190,6 +226,9 @@ class ModernStreamerApp(QMainWindow):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.resize(720, 460)
+        icon = get_logo_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
         
         self.app_name = "HX Streamer Pro"
         self.is_dark_mode = True # 默认深色
@@ -596,7 +635,7 @@ class ModernStreamerApp(QMainWindow):
             self.set_stream_inputs_enabled(False)
         else:
             self.status_lbl.setText("Stopping...")
-            self.worker.is_running = False
+            self.worker.request_stop()
             self.btn_action.setEnabled(False)
             self.btn_action.setText("Stopping...")
 
@@ -643,12 +682,16 @@ class ModernStreamerApp(QMainWindow):
         self.auto_save_timer.stop()
         self.save_config()
         if self.worker.isRunning():
-            self.worker.is_running = False
-            self.worker.wait(1000)
+            self.worker.request_stop()
+            self.worker.wait(1500)
         super().closeEvent(event)
 
 if __name__ == "__main__":
+    set_windows_app_user_model_id("AouTzxc.HXStreamerPro")
     app = QApplication(sys.argv)
+    app_icon = get_logo_icon()
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
     window = ModernStreamerApp()
     window.show()
     sys.exit(app.exec())

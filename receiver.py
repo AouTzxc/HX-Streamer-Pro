@@ -5,6 +5,7 @@ import struct
 import json
 import os
 import shutil
+import ctypes
 from pathlib import Path
 import cv2
 import numpy as np
@@ -23,7 +24,7 @@ from PyQt6.QtWidgets import (
     QGraphicsDropShadowEffect,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QImage, QPixmap, QColor
+from PyQt6.QtGui import QImage, QPixmap, QColor, QIcon
 
 
 class ReceiverWorker(QThread):
@@ -46,6 +47,9 @@ class ReceiverWorker(QThread):
         self.max_frame_bytes = 20 * 1024 * 1024
         self._last_emit_time = 0.0
         self._last_decode_warn_time = 0.0
+
+    def request_stop(self):
+        self.is_running = False
 
     def run(self):
         self.is_running = True
@@ -108,15 +112,28 @@ class ReceiverWorker(QThread):
             frame_rgb.data, w, h, ch * w, QImage.Format.Format_RGB888
         ).copy()
 
+    def _bind_socket(self, sock):
+        try:
+            sock.bind((self.bind_ip, self.port))
+            return self.bind_ip
+        except OSError as e:
+            if self.bind_ip != "0.0.0.0":
+                self.status_updated.emit(
+                    f"绑定 {self.bind_ip}:{self.port} 失败({e})，已回退到 0.0.0.0"
+                )
+                sock.bind(("0.0.0.0", self.port))
+                return "0.0.0.0"
+            raise
+
     def _run_tcp(self):
         server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_sock.settimeout(1.0)
         try:
-            server_sock.bind((self.bind_ip, self.port))
+            bound_ip = self._bind_socket(server_sock)
             server_sock.listen(1)
             self.status_updated.emit(
-                f"TCP 监听中 -> {self.bind_ip}:{self.port}"
+                f"TCP 监听中 -> {bound_ip}:{self.port}"
             )
             self.source_updated.emit("None")
 
@@ -205,9 +222,9 @@ class ReceiverWorker(QThread):
         udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         udp_sock.settimeout(1.0)
         try:
-            udp_sock.bind((self.bind_ip, self.port))
+            bound_ip = self._bind_socket(udp_sock)
             self.status_updated.emit(
-                f"UDP 监听中 -> {self.bind_ip}:{self.port}"
+                f"UDP 监听中 -> {bound_ip}:{self.port}"
             )
             self.source_updated.emit("None")
 
@@ -314,12 +331,31 @@ class ThemeToggleButton(QPushButton):
             )
 
 
+def get_logo_icon():
+    icon_path = Path(__file__).resolve().parent / "logo.ico"
+    if icon_path.exists():
+        return QIcon(str(icon_path))
+    return QIcon()
+
+
+def set_windows_app_user_model_id(app_id):
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        pass
+
+
 class ModernReceiverApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.resize(720, 460)
+        icon = get_logo_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
 
         self.app_name = "HX Streamer Receiver"
         self.is_dark_mode = True
@@ -407,7 +443,7 @@ class ModernReceiverApp(QMainWindow):
         self.proto_combo.setFixedHeight(30)
         form_layout.addWidget(self.proto_combo)
 
-        form_layout.addWidget(QLabel("Bind IP:"))
+        form_layout.addWidget(QLabel("Bind IP (0.0.0.0 = all):"))
         self.inp_ip = ModernInput("0.0.0.0")
         form_layout.addWidget(self.inp_ip)
 
@@ -739,7 +775,7 @@ class ModernReceiverApp(QMainWindow):
             self.status_lbl.setText("Status: Starting...")
         else:
             self.status_lbl.setText("Status: Stopping...")
-            self.worker.is_running = False
+            self.worker.request_stop()
             self.btn_action.setEnabled(False)
             self.btn_action.setText("Stopping...")
 
@@ -792,13 +828,17 @@ class ModernReceiverApp(QMainWindow):
         self.auto_save_timer.stop()
         self.save_config()
         if self.worker.isRunning():
-            self.worker.is_running = False
+            self.worker.request_stop()
             self.worker.wait(1500)
         super().closeEvent(event)
 
 
 if __name__ == "__main__":
+    set_windows_app_user_model_id("AouTzxc.HXStreamerReceiver")
     app = QApplication(sys.argv)
+    app_icon = get_logo_icon()
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
     window = ModernReceiverApp()
     window.show()
     sys.exit(app.exec())

@@ -1,0 +1,98 @@
+name: Build With Nuitka
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: ".python-version"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen --group build
+
+      - name: Build sender + receiver (Windows onefile)
+        run: uv run --group build python scripts/build_nuitka.py --platform windows --mode onefile --app all --clean
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nuitka
+          path: |
+            build/nuitka/windows-native/sender/*.exe
+            build/nuitka/windows-native/receiver/*.exe
+
+  macos-intel:
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: ".python-version"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen --group build
+
+      - name: Build sender + receiver (macOS Intel DMG)
+        run: uv run --group build python scripts/build_nuitka.py --platform macos --mode app --macos-arch x86_64 --create-dmg --app all --clean
+
+      - name: Upload macOS Intel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-nuitka
+          path: |
+            build/nuitka/macos-x86_64/sender/*
+            build/nuitka/macos-x86_64/receiver/*
+
+  macos-apple-silicon:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: ".python-version"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen --group build
+
+      - name: Build sender + receiver (macOS Apple Silicon DMG)
+        run: uv run --group build python scripts/build_nuitka.py --platform macos --mode app --macos-arch arm64 --create-dmg --app all --clean
+
+      - name: Upload macOS Apple Silicon artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-nuitka
+          path: |
+            build/nuitka/macos-arm64/sender/*
+            build/nuitka/macos-arm64/receiver/*

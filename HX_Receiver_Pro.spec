@@ -5,7 +5,7 @@ a = Analysis(
     ['receiver.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('logo.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

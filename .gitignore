@@ -2,12 +2,16 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.venv/
 
 build/
 dist/
+dist_nuitka/
 
 config.json
 receiver_config.json
 
 .vscode/
 .idea/
+.DS_Store
+nuitka-crash-report.xml
