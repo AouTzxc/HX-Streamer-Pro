@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import ctypes
+import threading
 from pathlib import Path
 import cv2
 import numpy as np
@@ -23,15 +24,16 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QImage, QPixmap, QColor, QIcon
 
 
-class ReceiverWorker(QThread):
+class ReceiverWorker(QObject):
     frame_received = pyqtSignal(QImage)
     fps_updated = pyqtSignal(int)
     status_updated = pyqtSignal(str)
     source_updated = pyqtSignal(str)
+    finished = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -47,6 +49,31 @@ class ReceiverWorker(QThread):
         self.max_frame_bytes = 20 * 1024 * 1024
         self._last_emit_time = 0.0
         self._last_decode_warn_time = 0.0
+        self._thread = None
+        self._thread_lock = threading.Lock()
+
+    def isRunning(self):
+        thread = self._thread
+        return thread is not None and thread.is_alive()
+
+    def start(self):
+        with self._thread_lock:
+            if self.isRunning():
+                return
+            self._thread = threading.Thread(
+                target=self.run,
+                name="ReceiverWorkerThread",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def wait(self, timeout_ms=None):
+        thread = self._thread
+        if thread is None:
+            return True
+        timeout = None if timeout_ms is None else max(0, timeout_ms) / 1000.0
+        thread.join(timeout=timeout)
+        return not thread.is_alive()
 
     def request_stop(self):
         self.is_running = False
@@ -67,6 +94,9 @@ class ReceiverWorker(QThread):
             self.fps_updated.emit(0)
             self.source_updated.emit("None")
             self.status_updated.emit("Stopped")
+            with self._thread_lock:
+                self._thread = None
+            self.finished.emit()
 
     def _should_emit_frame(self, now):
         if self.fps_limit <= 0:
