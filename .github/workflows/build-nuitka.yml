@@ -96,3 +96,37 @@ jobs:
           path: |
             build/nuitka/macos-arm64/sender/*
             build/nuitka/macos-arm64/receiver/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - windows
+      - macos-intel
+      - macos-apple-silicon
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Pack artifacts
+        shell: bash
+        run: |
+          mkdir -p release-bundles
+          cd release-assets
+          for d in */ ; do
+            name="${d%/}"
+            zip -r "../release-bundles/${name}.zip" "$name"
+          done
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: HX Streamer Pro ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release-bundles/*.zip

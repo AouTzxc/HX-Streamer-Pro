@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOGO_ICO = ROOT / "logo.ico"
+RELEASE_VERSION = "1.0.0"
 
 APPS = {
     "sender": {
@@ -97,8 +98,8 @@ def build_one(app_key, output_root):
         f"--output-filename={app['binary_name']}",
         f"--product-name={app['product_name']}",
         "--company-name=HX Streamer Team",
-        "--product-version=0.2.0",
-        "--file-version=0.2.0.0",
+        f"--product-version={RELEASE_VERSION}",
+        f"--file-version={RELEASE_VERSION}.0",
         "--copyright=GPL-3.0-only",
         str(app["entry"]),
     ]

@@ -1,6 +1,6 @@
 [project]
 name = "hx-streamer-pro"
-version = "0.2.0"
+version = "1.0.0"
 description = "LAN screen streaming suite with sender and receiver apps."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
