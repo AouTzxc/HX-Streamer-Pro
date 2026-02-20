@@ -7,7 +7,7 @@ on:
       - "v*"
 
 jobs:
-  windows:
+  windows-sender:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -26,19 +26,17 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen --group build
 
-      - name: Build sender + receiver (Windows onefile)
-        run: uv run --group build python scripts/build_nuitka.py --platform windows --mode onefile --app all --clean
+      - name: Build sender (Windows onefile)
+        run: uv run --group build python scripts/build_nuitka.py --platform windows --mode onefile --app sender --clean
 
-      - name: Upload Windows artifacts
+      - name: Upload sender artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-nuitka
-          path: |
-            build/nuitka/windows-native/sender/*.exe
-            build/nuitka/windows-native/receiver/*.exe
+          name: windows-sender-nuitka
+          path: build/nuitka/windows-native/sender/*.exe
 
-  macos-intel:
-    runs-on: macos-13
+  windows-receiver:
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,60 +54,28 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen --group build
 
-      - name: Build sender + receiver (macOS Intel DMG)
-        run: uv run --group build python scripts/build_nuitka.py --platform macos --mode app --macos-arch x86_64 --create-dmg --app all --clean
+      - name: Build receiver (Windows onefile)
+        run: uv run --group build python scripts/build_nuitka.py --platform windows --mode onefile --app receiver --clean
 
-      - name: Upload macOS Intel artifacts
+      - name: Upload receiver artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-intel-nuitka
-          path: |
-            build/nuitka/macos-x86_64/sender/*
-            build/nuitka/macos-x86_64/receiver/*
-
-  macos-apple-silicon:
-    runs-on: macos-14
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version-file: ".python-version"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Sync dependencies
-        run: uv sync --frozen --group build
-
-      - name: Build sender + receiver (macOS Apple Silicon DMG)
-        run: uv run --group build python scripts/build_nuitka.py --platform macos --mode app --macos-arch arm64 --create-dmg --app all --clean
-
-      - name: Upload macOS Apple Silicon artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-arm64-nuitka
-          path: |
-            build/nuitka/macos-arm64/sender/*
-            build/nuitka/macos-arm64/receiver/*
+          name: windows-receiver-nuitka
+          path: build/nuitka/windows-native/receiver/*.exe
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && always()
     needs:
-      - windows
-      - macos-intel
-      - macos-apple-silicon
+      - windows-sender
+      - windows-receiver
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download all build artifacts
+      - name: Download all Windows artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: windows-*-nuitka
           path: release-assets
 
       - name: Pack artifacts
@@ -117,6 +83,7 @@ jobs:
         run: |
           mkdir -p release-bundles
           cd release-assets
+          ls -la
           for d in */ ; do
             name="${d%/}"
             zip -r "../release-bundles/${name}.zip" "$name"
